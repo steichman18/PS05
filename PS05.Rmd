@@ -18,9 +18,12 @@ knitr::opts_chunk$set(
   echo = TRUE, fig.width=8, fig.height=4.5, message=FALSE, warning = FALSE
   )
 set.seed(76)
+options(digits=3)
 
 # Load packages
 library(tidyverse)
+library(readr)
+library(lubridate)
 
 # Note the relative file path, and not absolute file path:
 train <- read_csv("data/train.csv")
@@ -31,7 +34,7 @@ sample_submission <- read_csv("data/sampleSubmission.csv")
 
 # Collaboration
 
-Please indicate who you collaborated with on this assignment:
+Please indicate who you collaborated with on this assignment: Jon
 
 
 # Exploratory Data Analysis
@@ -39,9 +42,92 @@ Please indicate who you collaborated with on this assignment:
 Information on the competition can be found [here](https://www.kaggle.com/c/bike-sharing-demand).
 
 ```{r}
+train <- read_csv("data/train.csv")
+test <- read_csv("data/test.csv")
+```
+
+From Kaggle: 
+datetime - hourly date + timestamp  
+season -  1 = spring, 2 = summer, 3 = fall, 4 = winter 
+holiday - whether the day is considered a holiday
+workingday - whether the day is neither a weekend nor holiday
+weather - 1: Clear, Few clouds, Partly cloudy, Partly cloudy 
+2: Mist + Cloudy, Mist + Broken clouds, Mist + Few clouds, Mist 
+3: Light Snow, Light Rain + Thunderstorm + Scattered clouds, Light Rain + Scattered clouds 
+4: Heavy Rain + Ice Pallets + Thunderstorm + Mist, Snow + Fog 
+temp - temperature in Celsius
+atemp - "feels like" temperature in Celsius
+humidity - relative humidity
+windspeed - wind speed
+casual - number of non-registered user rentals initiated
+registered - number of registered user rentals initiated
+count - number of total rentals
+
+The distribution fo count is right skewed. However, a log transformation overcorrects for this and creates a distribution that is skewed to the left. 
+```{r}
+ggplot(train,aes(x=count))+geom_histogram()
+ggplot(train, aes(x=count)) +
+  geom_histogram() +
+  labs(x="rental count", title="Distribution of rental count (log10-scale)") +
+  scale_x_log10()
+```
+
+Extracting the year, month, date, and hour from the datetime variable.
+```{r}
+summary(train$datetime)
+train_m <- train %>%
+  mutate(datetime=ymd_hms(datetime)) %>%
+  mutate(dt_year = year(datetime),dt_month = month(datetime),dt_day = day(datetime), dt_hour=hour(datetime))
 
 ```
 
+Approximately equal distribution of observations per season. However, the distribution is less skewed for rentals per season, it seems like fall, spring, and summer are relatively similar (with a 2% increase from each to the next) but winter has far fewer bike rentals. 
+```{r}
+train_m %>% 
+  group_by(season) %>%
+  summarize(per=n()/nrow(train_m))
+total_sum <- sum(train_m$count)
+train_m %>%
+  group_by(season) %>%
+  summarize(per_count = sum(count)/total_sum)
+```
+
+There are significantly more non-holidays than holidays in the dataset, and more rentals on non-holidays than holidays for that reason, but there is a higher number of bikes rented per day for holidays. There are twice as many working days, and more than twice as many bike rentals from weekdays, and there is a slightly higher rental rate for working days (opposite trend from holidays). 
+```{r}
+train_m %>%
+  group_by(holiday) %>%
+  summarize(num=n(),tot=sum(count),per_rent=tot/num)
+train_m %>%
+  group_by(workingday) %>%
+  summarize(num=n(),tot=sum(count),per_rent=tot/num)
+```
+
+More than 65% of the observations are for weather 1, more than 25% for weather 2, about 8% for weather 3 and less than 1% for weather 4.
+```{r}
+tot <- nrow(train_m)
+train_m %>%
+  group_by(weather) %>%
+  summarize(per = n()/tot)
+ggplot(train,aes(x=count,fill=as.factor(weather)))+geom_histogram()
+```
+
+There seems to be a general positive association between temperature and count (and similarity in values between temperature and perceived temperature).
+```{r}
+ggplot(train,aes(x=atemp,y=count))+
+  geom_point(alpha=.3)+
+  stat_smooth() +
+  geom_point(x=train$temp,color="blue",alpha=.3)
+```
+
+There is no clear relationship between humidity and rental counts or windspeed and rental counts.
+```{r}
+ggplot(train,aes(x=humidity,y=count))+
+  geom_point() + 
+  stat_smooth() 
+ggplot(train,aes(x=windspeed,y=count))+
+  geom_point() +
+  stat_smooth()
+```
 
 # Model Fit
 
