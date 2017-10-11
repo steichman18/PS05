@@ -328,11 +328,13 @@ More than 65% of the observations are for weather 1, more than 25% for weather 2
 <p>As such, we use the <code>weather</code> categorical variable along with <code>month</code> and <code>hour</code> in our final linear regression model.</p>
 </div>
 </div>
-<div id="model-fit" class="section level1">
-<h1>Model Fit</h1>
-</div>
-<div id="create-submission-file" class="section level1">
-<h1>Create Submission File</h1>
+<div id="fit-model-create-submission" class="section level1">
+<h1>Fit model &amp; Create submission</h1>
+<pre class="r"><code>submissionModel &lt;- lm(log_count ~ dt_month + dt_hour + weather, data = train_m)
+preds &lt;- predict.lm(submissionModel, test)
+submission &lt;- data.frame(test$datetime, exp(preds))
+names(submission) &lt;- c(&quot;datetime&quot;, &quot;count&quot;)
+write.csv(submission, &quot;submission.csv&quot;, row.names=FALSE)</code></pre>
 </div>
 
 

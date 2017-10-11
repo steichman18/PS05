@@ -68,6 +68,18 @@ train_m <- train_m %>%
 # Changing categorical variables to factors
 names <- c("season","holiday","workingday","weather","dt_year","dt_month","dt_wday","dt_hour")
 train_m[,names] <- lapply(train_m[,names] , factor)
+
+# Also do everything for test dataset
+# Extracting the year, month, date, and hour from the datetime variable.
+test <- test %>%
+  mutate(datetime=ymd_hms(datetime)) %>%
+  mutate(dt_year = year(datetime),
+         dt_month = month(datetime),
+         dt_wday = wday(datetime),
+         dt_hour=hour(datetime))
+
+# Changing categorical variables to factors
+test[,names] <- lapply(test[,names] , factor)
 ```
 
 ## Exploratory Data Analysis
@@ -187,15 +199,13 @@ As such, when considering what 3 variables to use, we want to use month along wi
 
 As such, we use the `weather` categorical variable along with `month` and `hour` in our final linear regression model.
 
-# Model Fit
+# Fit model & Create submission
 
 ```{r}
-
+submissionModel <- lm(log_count ~ dt_month + dt_hour + weather, data = train_m)
+preds <- predict.lm(submissionModel, test)
+submission <- data.frame(test$datetime, exp(preds))
+names(submission) <- c("datetime", "count")
+write.csv(submission, "submission.csv", row.names=FALSE)
 ```
 
-
-# Create Submission File
-
-```{r}
-
-```
