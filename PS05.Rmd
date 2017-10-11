@@ -1,6 +1,6 @@
 ---
 title: "STAT/MATH 495: Problem Set 05"
-author: "WRITE YOUR NAME HERE"
+author: "Jonathan Che, Tim Lee, Sarah Teichman"
 date: "2017-10-11"
 output:
   html_document:
@@ -31,103 +31,161 @@ test <- read_csv("data/test.csv")
 sample_submission <- read_csv("data/sampleSubmission.csv")
 ```
 
+## Variable Cleanup
 
-# Collaboration
+First, we need to do some simple cleanup of the variables in the data.
 
-Please indicate who you collaborated with on this assignment: Jon
+The distribution of count is heavily right skewed. A log transformation somewhat overcorrects for this and creates a distribution that is slightly skewed to the left. Though we will use log(count) as our response variable when modeling, we will do EDA on untransformed counts just so that we can see the full variation in our data.
 
+```{r, echo=FALSE}
+# Distribution of Total Count of Rentals
+ggplot(train,aes(x=count))+
+  geom_histogram() + 
+  labs(title = "Count of Bike Rentals", x = "Bike Rental Count")
 
-# Exploratory Data Analysis
-
-Information on the competition can be found [here](https://www.kaggle.com/c/bike-sharing-demand).
-
-```{r}
-train <- read_csv("data/train.csv")
-test <- read_csv("data/test.csv")
-```
-
-From Kaggle: 
-datetime - hourly date + timestamp  
-season -  1 = spring, 2 = summer, 3 = fall, 4 = winter 
-holiday - whether the day is considered a holiday
-workingday - whether the day is neither a weekend nor holiday
-weather - 1: Clear, Few clouds, Partly cloudy, Partly cloudy 
-2: Mist + Cloudy, Mist + Broken clouds, Mist + Few clouds, Mist 
-3: Light Snow, Light Rain + Thunderstorm + Scattered clouds, Light Rain + Scattered clouds 
-4: Heavy Rain + Ice Pallets + Thunderstorm + Mist, Snow + Fog 
-temp - temperature in Celsius
-atemp - "feels like" temperature in Celsius
-humidity - relative humidity
-windspeed - wind speed
-casual - number of non-registered user rentals initiated
-registered - number of registered user rentals initiated
-count - number of total rentals
-
-The distribution fo count is right skewed. However, a log transformation overcorrects for this and creates a distribution that is skewed to the left. 
-```{r}
-ggplot(train,aes(x=count))+geom_histogram()
+# Log Scale of Count
 ggplot(train, aes(x=count)) +
   geom_histogram() +
-  labs(x="rental count", title="Distribution of rental count (log10-scale)") +
+  labs(x="Rental Count", title="Distribution of Rental Count (log10-scale)") +
   scale_x_log10()
-```
 
-Extracting the year, month, date, and hour from the datetime variable.
-```{r}
-summary(train$datetime)
+# Log Scale of Count
 train_m <- train %>%
+  mutate(log_count = log(count))
+```
+
+We also pull out datetime information and change categorical variables into factors.
+
+```{r, include=FALSE}
+#Extracting the year, month, date, and hour from the datetime variable.
+train_m <- train_m %>%
   mutate(datetime=ymd_hms(datetime)) %>%
-  mutate(dt_year = year(datetime),dt_month = month(datetime),dt_day = day(datetime), dt_hour=hour(datetime))
+  mutate(dt_year = year(datetime),
+         dt_month = month(datetime),
+         dt_wday = wday(datetime),
+         dt_hour=hour(datetime))
 
+# Changing categorical variables to factors
+names <- c("season","holiday","workingday","weather","dt_year","dt_month","dt_wday","dt_hour")
+train_m[,names] <- lapply(train_m[,names] , factor)
 ```
 
-Approximately equal distribution of observations per season. However, the distribution is less skewed for rentals per season, it seems like fall, spring, and summer are relatively similar (with a 2% increase from each to the next) but winter has far fewer bike rentals. 
+## Exploratory Data Analysis
+
+Intuitively, there are a few major factors that we think would significantly influence the number of bikes rented per hour. We could generally group these factors into two categories: time-based factors (e.g. time of day/week/year), and condition-based factors (e.g. weather, holidays, etc.).
+
+We begin by examining some potential time-based factors.
+
+### Time-Based Factors
+
+We first look at the average number of bike rentals per hour of day (note: the below plot looks similar when using the median, so we can be relatively confident that it's not too affected by extreme values).
+
+```{r, echo=FALSE}
+# Average count by hour of day
+foo <- train_m %>%
+  group_by(dt_hour) %>%
+  summarize(count = mean(count))
+ggplot(foo, aes(x=dt_hour, y=count)) +
+  geom_point() + 
+  labs(title="Average Count by Hour of Day",
+       x="Hour of Day",
+       y="Average Count")
+```
+
+Clearly, there is significant variation in bike rentals over the course of a given day. We notice that rush hours (~8AM and 5-6PM) experience significant spikes in bike rentals, which suggests that a large portion of bike-share users may rent bikes to get to work. Thus, hour of day seems like it would be an important variable for a model to use.
+
+Importantly, we notice that the relationship between hour of day and average number of bikes rented is nonlinear. As such, when we model, we consider `hour of day` as a categorical variable with 24 levels, rather than a numeric variable. This change gives our linear regression model more flexibility to capture nonlinear average relationships between `hour of day` and `count`.
+
+Next, we look at a similar plot for the average number of bike rentals per month.
+
+```{r, echo=FALSE}
+# Count by month
+foo <- train_m %>%
+  group_by(dt_month) %>%
+  summarize(count = mean(count))
+ggplot(foo, aes(x=dt_month, y=count)) +
+  geom_point() + 
+  labs(title="Average Count by Month",
+       x="Month",
+       y="Average Count")
+```
+
+Here, we notice that there are typically more bike rentals in the summer and fall than during the winter, as expected. Again, this trend is generally nonlinear so we want to consider `month` as a categorical variable.
+
+To see if there are significant interactions between hour of day and month of year, we examine the following plot:
+
+```{r, echo=FALSE}
+# Count by month and hour
+foo <- train_m %>%
+  group_by(dt_month, dt_hour) %>%
+  summarize(count = mean(count))
+ggplot(foo, aes(x=dt_month, y=dt_hour, color=count, size=count)) +
+  geom_point() + 
+  guides(size=F) +
+  labs(title="Average Count by Month and Hour",
+       x="Month",
+       y="Hour",
+       color="Average Count")
+```
+
+We notice that in the summer months, days are longer, so there are more bike rentals early in the day and late at night. Though these trends are interesting, we will simply note them and move on for now, given the limits we have on the number of predictors we can use.
+
+### Condition-Based Factors
+
+First, we look at the relationships between holidays/working days and average bike rentals.
+
+holiday/working interaction, 2 variables, not worth it.
 ```{r}
-train_m %>% 
-  group_by(season) %>%
-  summarize(per=n()/nrow(train_m))
-total_sum <- sum(train_m$count)
+# Holiday vs. Non-holiday Counts
 train_m %>%
-  group_by(season) %>%
-  summarize(per_count = sum(count)/total_sum)
+  group_by(holiday, workingday) %>%
+  summarize(rentals_per_day=mean(count))
 ```
 
-There are significantly more non-holidays than holidays in the dataset, and more rentals on non-holidays than holidays for that reason, but there is a higher number of bikes rented per day for holidays. There are twice as many working days, and more than twice as many bike rentals from weekdays, and there is a slightly higher rental rate for working days (opposite trend from holidays). 
-```{r}
-train_m %>%
-  group_by(holiday) %>%
-  summarize(num=n(),tot=sum(count),per_rent=tot/num)
-train_m %>%
-  group_by(workingday) %>%
-  summarize(num=n(),tot=sum(count),per_rent=tot/num)
-```
+We notice that there are the fewest average number of rentals per day on holidays, more on nonholiday weekends, and the most on nonholiday weekdays. This finding matches our earlier observations about rush hour, where we stated that many bike rentals seem to be used for getting to/from work.
+
+Since the magnitudes of these differences are relatively small (and we only have 3 variables to use in our model), we will again simply note these findings and move on.
+
+Finally, we want to look at the effect of weather conditions on the number of bike rentals. There are 
 
 More than 65% of the observations are for weather 1, more than 25% for weather 2, about 8% for weather 3 and less than 1% for weather 4.
-```{r}
-tot <- nrow(train_m)
+```{r, echo=FALSE}
+# Count by weather conditions
 train_m %>%
   group_by(weather) %>%
-  summarize(per = n()/tot)
-ggplot(train,aes(x=count,fill=as.factor(weather)))+geom_histogram()
+  summarize(num=n(),
+            count=mean(count))
 ```
 
-There seems to be a general positive association between temperature and count (and similarity in values between temperature and perceived temperature).
-```{r}
-ggplot(train,aes(x=atemp,y=count))+
-  geom_point(alpha=.3)+
-  stat_smooth() +
-  geom_point(x=train$temp,color="blue",alpha=.3)
-```
+We see that in general, good weather (`weather == 1`) is associated with more bike rentals, on average.
 
-There is no clear relationship between humidity and rental counts or windspeed and rental counts.
-```{r}
-ggplot(train,aes(x=humidity,y=count))+
-  geom_point() + 
-  stat_smooth() 
-ggplot(train,aes(x=windspeed,y=count))+
+When considering the final 3 variables that we wish to use for our model, however, we need to think about their collinearities. We want to use 3 variables that capture as much of the total variation in the data as possible. While, for example, two different variables may seem like good predictors on their own, they may be so heavily correlated with each other that using both of them may not significantly improve a linear regression model's results.
+
+In general, we know that the weather information provided (e.g. temperature, humidity, etc.) is heavily correlated with the month of the year, as seen below.
+
+```{r, echo=FALSE}
+foo <- train_m %>%
+  group_by(dt_month) %>%
+  summarize(temp = mean(temp),
+            atemp = mean(atemp),
+            humidity = mean(humidity),
+            windspeed=mean(windspeed)) %>%
+  gather(weather_stat, value, temp:windspeed)
+
+ggplot(foo, aes(x=dt_month, y=value, color=weather_stat, group=weather_stat)) +
   geom_point() +
-  stat_smooth()
+  geom_line() +
+  labs(title="Weather Statistics over the Course of a Year",
+       y="Value",
+       x="Month",
+       color="Weather \nStatistic")
 ```
+
+Ignoring for a moment the general amorphousness of the y-axis units, we notice that the month of the year can generally capture some of the variation in the different weather statistics over the course of a year.
+
+As such, when considering what 3 variables to use, we want to use month along with the weather variable that should be least "related to" month. From the chart above, we notice that both temperature and wind speed seem to be strongly related to month. Humidity, on the other hand, has more variation. This is because humidity is 100% when it rains, and can vary down to very low values on drier days.
+
+As such, we use the `weather` categorical variable along with `month` and `hour` in our final linear regression model.
 
 # Model Fit
 
